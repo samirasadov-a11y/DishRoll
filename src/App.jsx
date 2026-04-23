@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment, useRef } from "react";
 
-const APP_VERSION = "0.2.8";
+const APP_VERSION = "0.2.9";
 const PRICE_MONTHLY = "€3.99";
 const track = (n, p) => { try { if (typeof window.track === "function") window.track(n, p || {}); } catch {} };
 
@@ -58,6 +58,20 @@ function detectCuisine(name="", desc="") {
 }
 
 const CUISINES = ["Italian","Asian","Mexican","Mediterranean","Indian","French","American","Middle Eastern","Japanese","Thai","Greek","Spanish","Moroccan","Lebanese","Vietnamese","Ukrainian","Azerbaijani"];
+const LANGS = [
+  { code:"en", label:"🇬🇧 English" },
+  { code:"es", label:"🇪🇸 Español" },
+  { code:"fr", label:"🇫🇷 Français" },
+  { code:"de", label:"🇩🇪 Deutsch" },
+  { code:"it", label:"🇮🇹 Italiano" },
+  { code:"pt", label:"🇵🇹 Português" },
+  { code:"pl", label:"🇵🇱 Polski" },
+  { code:"uk", label:"🇺🇦 Українська" },
+  { code:"az", label:"🇦🇿 Azərbaycan" },
+  { code:"ru", label:"🇷🇺 Русский" },
+  { code:"ar", label:"🇸🇦 العربية" },
+  { code:"zh", label:"🇨🇳 中文" },
+];
 const DIETARY = ["Vegetarian","Vegan","Gluten-Free","Dairy-Free","Keto","Paleo","Nut-Free","Low-Carb","High-Protein","Pescatarian"];
 const CURRENCY = { EUR:"€", GBP:"£", USD:"$", CAD:"CA$", AUD:"A$" };
 const ML = { breakfast:"🌅 Breakfast", lunch:"🕐 Lunch", dinner:"🌙 Dinner" };
@@ -267,13 +281,15 @@ async function fetchPhoto(name, mt, ingredients, mainIngredient) {
     if (p) return p;
   }
 
-  // Tier 4: first ingredient word (e.g. "400g chicken thighs" → "chicken")
+  // Tier 4: try each ingredient word — scan all ingredients for a cooked-food photo
   if (ingredients && ingredients.length > 0) {
-    const raw = ingredients[0].replace(/^[\d\s.,]+/i, "").trim();
-    const ingWord = raw.split(" ").find(w => w.length > 3) || "";
-    if (ingWord) {
-      const p = await tryProxy(ingWord);
-      if (p) return p;
+    for (const ing of ingredients.slice(0, 6)) {
+      const raw = ing.replace(/^[\d\s.,]+/i, "").trim();
+      const ingWord = raw.split(" ").find(w => w.length > 3) || "";
+      if (ingWord) {
+        const p = await tryProxy(ingWord);
+        if (p) return p;
+      }
     }
   }
 
@@ -296,6 +312,7 @@ const DPREFS = {
   favMeals: [], favInput: "", cusInput: "",
   adults: 2, kids: 0, kidsDiff: false,
   currency: "EUR", budget: "", budgetOn: false,
+  lang: "en",
 };
 
 // ─── FONTS + CSS ──────────────────────────────────────────────────────────────
@@ -314,6 +331,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#faf7f0;color:#2a2a1a
 .hdr-logo span:last-child{font-family:'Cormorant Garamond',serif;font-size:24px;font-weight:700;color:#c4622d;letter-spacing:-.3px}
 .hdr-right{display:flex;align-items:center;gap:8px}
 .ver-pill{font-size:11px;color:#8abca0;font-weight:600;background:rgba(255,255,255,.1);padding:3px 9px;border-radius:100px}
+.lang-sel{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#c8e4b8;font-size:11px;font-weight:600;padding:3px 7px;border-radius:100px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;outline:none;appearance:none;-webkit-appearance:none}
+.lang-sel:focus{border-color:rgba(255,255,255,.4)}
 .pb{height:3px;background:#c8d8b8}
 .pf{height:100%;background:linear-gradient(90deg,#2a6a3a,#c4622d);transition:width .4s}
 .page{max-width:900px;margin:0 auto;padding:36px 20px 100px}
@@ -887,6 +906,8 @@ export default function App() {
       const dJ = selDays.map(d => `"${d.toLowerCase()}":${daySchema}`).join(",");
       const varietyCap = Math.max(2, Math.ceil(selDays.length / 3));
       const varietyRule = `VARIETY:No single "mainIngredient" may appear more than ${varietyCap} times across the whole plan. Rotate proteins (chicken,beef,fish,pork,lamb,tofu,lentils,chickpeas,eggs) and bases (pasta,rice,noodles,bread,potato) so no ingredient dominates.`;
+      const langName = LANGS.find(l => l.code === (prefs.lang || "en"))?.label.replace(/^[^ ]+ /,"") || "English";
+      const langInstr = prefs.lang && prefs.lang !== "en" ? `Language:Write ALL meal names, descriptions, and ingredient text in ${langName}.\n` : "";
       const raw = await callAI(
         `Generate a meal plan. Return ONLY valid compact JSON, no whitespace.\n` +
         `Days:${selDays.map(d => d.slice(0,3)).join(",")}|Types:${prefs.types.join(",")}|` +
@@ -894,6 +915,7 @@ export default function App() {
         `Dietary:${prefs.dietary.length ? prefs.dietary.join(",") : "none"}|` +
         `Adventure:${prefs.adventure}%|Servings:${tsrv}|Favs:${fh || "none"}|${bn}${cn}${kn}\n` +
         `${varietyRule}\n` +
+        `${langInstr}` +
         `Return:{${dJ}}`,
         4000
       );
@@ -914,8 +936,10 @@ export default function App() {
     const cur = plan?.[day.toLowerCase()]?.[mt]; if (!cur) return;
     setSwap({ day, mt }); setSwapLd(true); setSwapOpts([]);
     try {
+      const swapLangName = LANGS.find(l => l.code === (prefs.lang || "en"))?.label.replace(/^[^ ]+ /,"") || "English";
+      const swapLangInstr = prefs.lang && prefs.lang !== "en" ? ` Write all names, descriptions, and ingredients in ${swapLangName}.` : "";
       const raw = await callAI(
-        `3 alternative ${mt} recipes to replace "${cur.name}". Cuisines:${prefs.cuisines.join(",") || "any"}. Dietary:${prefs.dietary.join(",") || "none"}. Complexity:${prefs.complexity}. Servings:${tsrv}.\n` +
+        `3 alternative ${mt} recipes to replace "${cur.name}". Cuisines:${prefs.cuisines.join(",") || "any"}. Dietary:${prefs.dietary.join(",") || "none"}. Complexity:${prefs.complexity}. Servings:${tsrv}.${swapLangInstr}\n` +
         `Return ONLY JSON array:[{"name":"...","description":"Two sentences: ingredients/method then flavour profile.","time":"X min","estCost":0.00,"ingredients":["qty item"]},...]`,
         1200
       );
@@ -958,10 +982,13 @@ export default function App() {
           if (ka?.ingredients?.length) items.push({ meal: ka.name, servings: prefs.kids, ingredients: ka.ingredients, label: "Kids" });
         }
       }));
+      const listLangName = LANGS.find(l => l.code === (prefs.lang || "en"))?.label.replace(/^[^ ]+ /,"") || "English";
+      const listLangInstr = prefs.lang && prefs.lang !== "en" ? `Write all item names in ${listLangName}.\n` : "";
       const raw = await callAI(
         `Combine into grocery list. Merge identical items. Group by supermarket aisle.\nMeals:${JSON.stringify(items)}\n` +
         `Return ONLY JSON:{"categories":[{"name":"Produce","items":["2 onions"]},{"name":"Proteins","items":["600g chicken"]}]}\n` +
-        `Categories:Produce,Proteins,Dairy,Grains,Pantry,Condiments,Frozen,Bakery,Beverages,Other.`,
+        `Categories:Produce,Proteins,Dairy,Grains,Pantry,Condiments,Frozen,Bakery,Beverages,Other.\n` +
+        `${listLangInstr}`,
         2400
       );
       const list = JSON.parse(raw);
@@ -981,11 +1008,13 @@ export default function App() {
     fetchPhoto(meal.name, mt, meal.ingredients, meal.mainIngredient).then(url => setRecipe(p => p ? { ...p, photoUrl: url || photoFallback(meal.name, mt, meal.mainIngredient), photoLd: false } : null));
     // Recipe: detailed prompt with retry on failure
     const srv = isKids ? prefs.kids : tsrv;
+    const recipeLangName = LANGS.find(l => l.code === (prefs.lang || "en"))?.label.replace(/^[^ ]+ /,"") || "English";
+    const recipeLangInstr = prefs.lang && prefs.lang !== "en" ? `\nWrite the entire recipe (steps, tip, difficulty) in ${recipeLangName}.` : "";
     const prompt = isKids
-      ? `Write a simple, fun child-friendly recipe for "${meal.name}" for ${srv} kids (ages 4–12). Use mild flavours and simple techniques a child can help with.
+      ? `Write a simple, fun child-friendly recipe for "${meal.name}" for ${srv} kids (ages 4–12). Use mild flavours and simple techniques a child can help with.${recipeLangInstr}
 Return ONLY JSON:{"steps":["Step 1 with detail...","Step 2...","Step 3...","Step 4...","Step 5..."],"tip":"a fun tip for cooking with kids","prepTime":"X min","cookTime":"X min","difficulty":"Easy"}`
       : `Write a detailed, professional home cook recipe for "${meal.name}" for ${srv} servings.
-Rules: each step must include exact ingredient quantities, specific cooking temperatures in °C, and precise timing. Minimum 7 steps. Be thorough — a beginner should be able to follow this exactly.
+Rules: each step must include exact ingredient quantities, specific cooking temperatures in °C, and precise timing. Minimum 7 steps. Be thorough — a beginner should be able to follow this exactly.${recipeLangInstr}
 Return ONLY JSON:{"steps":["Step 1: [action] — [exact qty, temp °C if applicable, time]. [tip]","Step 2:...","Step 3:...","Step 4:...","Step 5:...","Step 6:...","Step 7:..."],"tip":"One expert chef insight specific to this dish","prepTime":"X min","cookTime":"X min","difficulty":"Easy|Medium|Hard"}`;
     const tryLoad = async (attempt) => {
       try {
@@ -1485,51 +1514,7 @@ Return ONLY JSON:{"steps":["Step 1: [action] — [exact qty, temp °C if applica
     );
   }
 
-  // ─── FEEDBACK MODAL ─────────────────────────────────────────────────────────
-  function FeedbackModal() {
-    if (!showFeedback) return null;
-    const close = () => { if (fbState !== "busy") { setShowFeedback(false); setFbErr(""); } };
-    return (
-      <div className="modal-overlay" onClick={close}>
-        <div className="modal-box" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
-          <div className="modal-title">Send feedback</div>
-          {fbState === "done" ? (
-            <div style={{ padding: "24px 0", textAlign: "center" }}>
-              <div style={{ fontSize: 30, marginBottom: 8 }}>🙏</div>
-              <div style={{ fontSize: 14, color: "#2a6a3a", fontWeight: 600 }}>Thanks — we've got your feedback.</div>
-            </div>
-          ) : (
-            <>
-              <div style={{ fontSize: 13, color: "#5a6a4a", lineHeight: 1.6, marginBottom: 12 }}>
-                Love something, found a bug, have an idea? Tell us — we read everything.
-              </div>
-              <textarea
-                className="fb-ta"
-                placeholder="What's on your mind?"
-                value={fbText}
-                onChange={e => setFbText(e.target.value)}
-                maxLength={4000}
-                disabled={fbState === "busy"}
-              />
-              <input
-                className="fb-email"
-                type="email"
-                placeholder="Your email (optional — for a reply)"
-                value={fbEmail}
-                onChange={e => setFbEmail(e.target.value)}
-                disabled={fbState === "busy"}
-              />
-              {fbErr && <div style={{ fontSize: 12, color: "#b04020", marginTop: 10 }}>{fbErr}</div>}
-              <button className="paywall-cta" style={{ marginTop: 14 }} onClick={sendFeedback} disabled={fbState === "busy" || !fbText.trim()}>
-                {fbState === "busy" ? "Sending…" : "Send feedback"}
-              </button>
-              <button className="paywall-skip" onClick={close} disabled={fbState === "busy"}>Cancel</button>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  }
+  // feedback modal close helper (used inline below)
 
   // ─── ONBOARDING MODAL ───────────────────────────────────────────────────────
   function OnboardingModal() {
@@ -1648,6 +1633,14 @@ Return ONLY JSON:{"steps":["Step 1: [action] — [exact qty, temp °C if applica
             <span>Dish</span><span>Roll</span>
           </div>
           <div className="hdr-right">
+            <select
+              className="lang-sel"
+              value={prefs.lang || "en"}
+              onChange={e => setPrefs(p => ({ ...p, lang: e.target.value }))}
+              title="Content language"
+            >
+              {LANGS.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+            </select>
             <span className="ver-pill">v{APP_VERSION}</span>
             {isPro
               ? <span style={{ fontSize: 11, fontWeight: 700, background: "linear-gradient(135deg,#c4622d,#a04820)", color: "#fff", padding: "3px 9px", borderRadius: 100 }}>✨ PREMIUM</span>
@@ -2022,7 +2015,49 @@ Return ONLY JSON:{"steps":["Step 1: [action] — [exact qty, temp °C if applica
         <SwapModal />
         <PaywallModal />
         <ManageModal />
-        <FeedbackModal />
+        {showFeedback && (() => {
+          const closeFb = () => { if (fbState !== "busy") { setShowFeedback(false); setFbErr(""); } };
+          return (
+            <div className="modal-overlay" onClick={closeFb}>
+              <div className="modal-box" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+                <div className="modal-title">Send feedback</div>
+                {fbState === "done" ? (
+                  <div style={{ padding: "24px 0", textAlign: "center" }}>
+                    <div style={{ fontSize: 30, marginBottom: 8 }}>🙏</div>
+                    <div style={{ fontSize: 14, color: "#2a6a3a", fontWeight: 600 }}>Thanks — we've got your feedback.</div>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 13, color: "#5a6a4a", lineHeight: 1.6, marginBottom: 12 }}>
+                      Love something, found a bug, have an idea? Tell us — we read everything. Feedback goes straight to the DishRoll team.
+                    </div>
+                    <textarea
+                      className="fb-ta"
+                      placeholder="What's on your mind?"
+                      value={fbText}
+                      onChange={e => setFbText(e.target.value)}
+                      maxLength={4000}
+                      disabled={fbState === "busy"}
+                    />
+                    <input
+                      className="fb-email"
+                      type="email"
+                      placeholder="Your email (optional — for a reply)"
+                      value={fbEmail}
+                      onChange={e => setFbEmail(e.target.value)}
+                      disabled={fbState === "busy"}
+                    />
+                    {fbErr && <div style={{ fontSize: 12, color: "#b04020", marginTop: 10 }}>{fbErr}</div>}
+                    <button className="paywall-cta" style={{ marginTop: 14 }} onClick={sendFeedback} disabled={fbState === "busy" || !fbText.trim()}>
+                      {fbState === "busy" ? "Sending…" : "Send feedback"}
+                    </button>
+                    <button className="paywall-skip" onClick={closeFb} disabled={fbState === "busy"}>Cancel</button>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })()}
         <OnboardingModal />
 
         {/* Floating feedback button */}
